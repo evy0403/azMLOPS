@@ -25,7 +25,7 @@ jobs:
       # Stage 1: Upload Dataset
       - name: Upload dataset to Azure ML
         run: |
-          az ml data create --name HAR1 \
+          az ml data create --name mydata2 \
             --path mydata.csv \
             --type uri_file \
             --workspace-name myminiproject \
