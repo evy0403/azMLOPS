@@ -35,7 +35,7 @@ jobs:
       # Stage 2: Preprocessing: Execute Python Script for Data Cleaning
       - name: Run data cleaning script
         run: |
-          python PRO/data_cleaning.py --trainingdata "PRO/mydata.csv" \
+          python Out/data_cleaning.py --trainingdata "PRO/mydata.csv" \
                                      --outputmodel "Out/cleaned_data.csv"
 
       # Stage 3: Save Cleaned Dataset
