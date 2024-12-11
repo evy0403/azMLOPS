@@ -22,12 +22,14 @@ jobs:
           az extension add -n ml -y
           az extension update -n ml
 
-      # Stage 1: Upload Dataset
-      - name: Upload dataset to Azure ML
+ 	# Stage 2: Data Cleaning
+      - name: Clean dataset using Azure ML pipeline
         run: |
-          az ml data create --name mydata1 \
-            --path PRO/mydata.csv \
-            --type uri_file \
+          az ml component create --name clean_data_component \
+            --file components/clean_data.yaml \
             --workspace-name myminiproject \
-            --resource-group Miniproject \
-            --description "Uploading mydataset in AZ"
+            --resource-group Miniproject
+
+          az ml job create --file jobs/clean_data_job.yaml \
+            --workspace-name myminiproject \
+            --resource-group Miniproject
