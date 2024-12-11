@@ -32,12 +32,7 @@ jobs:
             --resource-group Miniproject \
             --description "Uploading raw dataset for pre-preprocessing"
 
-      # Stage 2: Preprocessing: Execute Python Script for Data Cleaning
-      - name: Run data cleaning script
-        run: |
-          python scripts/data_cleaning.py
-
-      # Stage 3: Save Cleaned Dataset
+      # Stage 2: Save Cleaned Dataset
       - name: Save cleaned dataset
         run: |
           az ml data create --name cleaned_data \
