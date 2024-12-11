@@ -1,0 +1,115 @@
+name: Complete ML CI/CD Pipeline
+run-name: ${{ github.actor }} ML Workflow with Azure
+
+on:
+  push:
+    branches: 
+      - main
+      - develop
+  pull_request:
+    branches: 
+      - main
+
+jobs:
+  data-preprocessing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      - name: Install Azure ML extension
+        run: |
+          az extension add -n ml -y
+          az extension update -n ml
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Upload raw dataset to Azure ML
+        run: |
+          az ml data create \
+            --name raw_data \
+            --path PRO/mydata.csv \
+            --type uri_file \
+            --workspace-name myminiproject \
+            --resource-group Miniproject \
+            --description "Raw dataset for ML pipeline"
+
+      - name: Run data cleaning script
+        run: |
+          python Out/data_cleaning.py \
+            --trainingdata "PRO/mydata.csv" \
+            --outputmodel "Out/cleaned_data.csv"
+
+      - name: Upload cleaned dataset to Azure ML
+        run: |
+          az ml data create \
+            --name cleaned_data \
+            --path Out/cleaned_data.csv \
+            --type uri_file \
+            --workspace-name myminiproject \
+            --resource-group Miniproject \
+            --description "Cleaned dataset for model training"
+
+  model-training-and-deployment:
+    needs: data-preprocessing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train Machine Learning Model
+        run: |
+          python PRO/data_cleaning.py --trainingdata "PRO/mydata.csv" \
+                                     --outputmodel "Out/cleaned_data.csv"
+
+      - name: Register Model in Azure ML
+        run: |
+          az ml model create \
+            --name activity-classifier \
+            --path PRO/Model.py \
+            --type custom_model \
+            --workspace-name myminiproject \
+            --resource-group Miniproject
+
+      - name: Deploy Model to Azure ML
+        run: |
+          az ml online-endpoint create \
+            --name activity-classifier-endpoint \
+            --resource-group Miniproject \
+            --workspace-name myminiproject
+          
+          az ml online-deployment create \
+            --name activity-classifier-deployment \
+            --endpoint activity-classifier-endpoint \
+            --model activity-classifier \
+            --instance-type Standard_DS2_v2 \
+            --resource-group Miniproject \
+            --workspace-name myminiproject
