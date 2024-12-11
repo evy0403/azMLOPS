@@ -36,7 +36,7 @@ jobs:
       - name: Save cleaned dataset
         run: |
           az ml data create --name cleaned_data \
-            --path outputs/cleaned_data.csv \
+            --path Out/cleaned_data.csv \
             --type uri_file \
             --workspace-name myminiproject \
             --resource-group Miniproject \
