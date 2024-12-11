@@ -7,7 +7,7 @@ from sklearn.metrics import classification_report, accuracy_score
 import joblib
 import os
 
-# Initialize argument parser to dynamically provide dataset and output paths
+# I dynamically providing dataset and output paths
 parser = argparse.ArgumentParser()
 parser.add_argument("--trainingdata", type=str, default="C:\\Users\\Evelyn\\azure-ml-cicd\\production\\mydata.csv",
                     help="Path to the dataset for training")

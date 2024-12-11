@@ -1,0 +1,13 @@
+name: GitHub Actions Test
+run-name: ${{ github.actor }} workflow test
+on: [push]
+
+jobs:
+  azureLogin:
+    runs-on: ubuntu-latest
+    steps:
+      # Azure login step
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
