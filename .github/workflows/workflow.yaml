@@ -35,14 +35,14 @@ jobs:
       # Stage 2: Preprocessing: Execute Python Script for Data Cleaning
       - name: Run data cleaning script
         run: |
-          python scripts/data_cleaning.py --trainingdata "C:\Users\Evelyn\azure-ml-cicd\production\mydata.csv" \
-                                         --outputmodel "C:\Users\Evelyn\azure-ml-cicd\trained_model"
+          python PRO/data_cleaning.py --trainingdata "PRO/mydata.csv" \
+                                     --outputmodel "Out/cleaned_data.csv"
 
       # Stage 3: Save Cleaned Dataset
       - name: Save cleaned dataset
         run: |
           az ml data create --name cleaned_data \
-            --path C:/Users/Evelyn/azure-ml-cicd/trained_model/cleaned_data.csv \
+            --path Out/cleaned_data.csv \
             --type uri_file \
             --workspace-name myminiproject \
             --resource-group Miniproject \
