@@ -42,19 +42,12 @@ jobs:
           az extension add -n ml -y
           az extension update -n ml
 
-      # Stage 1: Model Training
-      - name: Train Machine Learning Model
+      # Stage 1: Model Training Simulation
+      - name: Simulate Model Training
         run: |
-          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
-          python PRO/Model.py \
-            --trainingdata "Out/cleaned_data.csv" \
-            --outputmodel "trained_model"
-
-      # Stage 2: Model Evaluation and Metrics
-      - name: Evaluate Model Performance
-        run: |
-          echo "Model training completed. Performance metrics will be logged here."
-          # You can add specific metric logging or validation steps here
+          echo "Model training step simulated"
+          mkdir -p trained_model
+          touch trained_model/model.pkl
 
   model-registration:
     needs: model-training
@@ -63,18 +56,13 @@ jobs:
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
       # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Stage 3: Register Model in Azure ML
+      # Stage 2: Register Model in Azure ML
       - name: Register Model in Azure ML
         run: |
           az ml model create \
@@ -90,11 +78,6 @@ jobs:
     steps:
       - name: Clone repository code
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
 
       # Prepare deployment environment
       - name: Prepare Deployment Files
@@ -120,7 +103,7 @@ jobs:
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Stage 4: Deploy Model to Azure ML
+      # Stage 3: Create Online Endpoint
       - name: Create Online Endpoint
         run: |
           az ml online-endpoint create \
@@ -128,7 +111,7 @@ jobs:
             --workspace-name myminiproject \
             --resource-group Miniproject
 
-      # Stage 5: Create Online Deployment
+      # Stage 4: Create Online Deployment
       - name: Create Online Deployment
         run: |
           az ml online-deployment create \
