@@ -11,24 +11,31 @@ on:
       - main
 
 jobs:
-  model-training:
+  azure-ml-setup:
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # Prepare Python environment
-      - name: Prepare Python environment
+      # Prepare Azure CLI and ML extension
+      - name: Prepare Azure ML Environment
         run: |
-          python -m pip install --upgrade pip
-          pip install pandas scikit-learn joblib numpy azure-cli
+          # Remove existing ML extension if present
+          az extension remove -n ml || true
+          
+          # Clean up and reinstall Azure ML extension
+          pip install --upgrade pip
+          pip install azure-cli
+          pip install azure-ml
+          
+          # Add ML extension
+          az extension add -n ml -y
+          az extension update -n ml
 
       # Azure login
       - name: Log in to Azure
@@ -36,21 +43,8 @@ jobs:
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Set up Azure ML CLI extension
-      - name: Install Azure ML extension
-        run: |
-          az extension add -n ml -y
-          az extension update -n ml
-
-      # Stage 1: Model Training Simulation
-      - name: Simulate Model Training
-        run: |
-          echo "Model training step simulated"
-          mkdir -p trained_model
-          touch trained_model/model.pkl
-
   model-registration:
-    needs: model-training
+    needs: azure-ml-setup
     runs-on: ubuntu-latest
     steps:
       - name: Clone repository code
@@ -62,13 +56,18 @@ jobs:
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Stage 2: Register Model in Azure ML
+      # Stage: Register Model in Azure ML
       - name: Register Model in Azure ML
         run: |
+          # Generate a unique model name with timestamp
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+          MODEL_NAME="activity-classifier-${TIMESTAMP}"
+
+          # Attempt to create the model
           az ml model create \
-            --name activity-classifier \
-            --path "trained_model/model.pkl" \
-            --type custom_model \
+            --name "$MODEL_NAME" \
+            --path "PRO/mydata.csv" \
+            --type uri_file \
             --workspace-name myminiproject \
             --resource-group Miniproject
 
@@ -79,46 +78,35 @@ jobs:
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      # Prepare deployment environment
-      - name: Prepare Deployment Files
-        run: |
-          mkdir -p deploy
-          cp PRO/Model.py deploy/score.py
-          cat > deploy/environment.yml << EOL
-          name: activity-classification
-          channels:
-            - defaults
-            - conda-forge
-          dependencies:
-            - python=3.9
-            - pandas
-            - scikit-learn
-            - numpy
-            - joblib
-          EOL
-
       # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Stage 3: Create Online Endpoint
-      - name: Create Online Endpoint
+      # Unique endpoint name
+      - name: Generate Unique Endpoint Name
         run: |
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+          ENDPOINT_NAME="activity-classifier-endpoint-${TIMESTAMP}"
+          
+          # Create Online Endpoint
           az ml online-endpoint create \
-            --name activity-classifier-endpoint \
+            --name "$ENDPOINT_NAME" \
             --workspace-name myminiproject \
             --resource-group Miniproject
 
-      # Stage 4: Create Online Deployment
+      # Create Online Deployment
       - name: Create Online Deployment
         run: |
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+          DEPLOYMENT_NAME="activity-classifier-deployment-${TIMESTAMP}"
+          
           az ml online-deployment create \
-            --name activity-classifier-deployment \
-            --endpoint activity-classifier-endpoint \
-            --model activity-classifier \
-            --code-path deploy \
+            --name "$DEPLOYMENT_NAME" \
+            --endpoint "$ENDPOINT_NAME" \
+            --model "$MODEL_NAME" \
+            --code-path PRO \
             --environment-name activity-classification \
             --workspace-name myminiproject \
             --resource-group Miniproject
