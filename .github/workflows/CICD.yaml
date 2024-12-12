@@ -14,29 +14,44 @@ jobs:
   data-preprocessing:
     runs-on: ubuntu-latest
     steps:
+      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          creds: '${{ secrets.AZURE_CREDENTIALS }}'
-
-      - name: Install Azure ML extension
-        run: |
-          az extension add -n ml -y
-          az extension update -n ml
-
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Python dependencies
+      # Upgrade pip and create requirements file if not exists
+      - name: Prepare Python environment
         run: |
           python -m pip install --upgrade pip
+          touch requirements.txt
+          echo "pandas" >> requirements.txt
+          echo "scikit-learn" >> requirements.txt
+          echo "joblib" >> requirements.txt
+          echo "numpy" >> requirements.txt
+
+      # Install dependencies
+      - name: Install Python dependencies
+        run: |
           pip install -r requirements.txt
 
+      # Azure login 
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      # Set up Azure ML CLI extension
+      - name: Install Azure ML extension
+        run: |
+          az extension add -n ml -y
+          az extension update -n ml
+
+      # Stage 1: Upload Raw Dataset to Azure ML
       - name: Upload raw dataset to Azure ML
         run: |
           az ml data create \
@@ -47,12 +62,14 @@ jobs:
             --resource-group Miniproject \
             --description "Raw dataset for ML pipeline"
 
+      # Stage 2: Data Cleaning
       - name: Run data cleaning script
         run: |
           python Out/data_cleaning.py \
             --trainingdata "PRO/mydata.csv" \
             --outputmodel "Out/cleaned_data.csv"
 
+      # Stage 3: Upload Cleaned Dataset to Azure ML
       - name: Upload cleaned dataset to Azure ML
         run: |
           az ml data create \
@@ -63,53 +80,126 @@ jobs:
             --resource-group Miniproject \
             --description "Cleaned dataset for model training"
 
-  model-training-and-deployment:
+  model-training:
     needs: data-preprocessing
     runs-on: ubuntu-latest
     steps:
+      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          creds: '${{ secrets.AZURE_CREDENTIALS }}'
-
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Python dependencies
+      # Prepare Python environment
+      - name: Prepare Python environment
         run: |
           python -m pip install --upgrade pip
+          touch requirements.txt
+          echo "pandas" >> requirements.txt
+          echo "scikit-learn" >> requirements.txt
+          echo "joblib" >> requirements.txt
+          echo "numpy" >> requirements.txt
+
+      # Install dependencies
+      - name: Install Python dependencies
+        run: |
           pip install -r requirements.txt
 
+      # Azure login
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      # Stage 4: Model Training
       - name: Train Machine Learning Model
         run: |
-          python PRO/data_cleaning.py --trainingdata "PRO/mydata.csv" \
-                                     --outputmodel "Out/cleaned_data.csv"
+          python PRO/model.py \
+            --trainingdata "Out/cleaned_data.csv" \
+            --outputmodel "trained_model"
 
+      # Stage 5: Register Model in Azure ML
       - name: Register Model in Azure ML
         run: |
           az ml model create \
             --name activity-classifier \
-            --path PRO/Model.py \
+            --path "trained_model" \
             --type custom_model \
             --workspace-name myminiproject \
             --resource-group Miniproject
 
+  model-deployment:
+    needs: model-training
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout repository
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      # Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # Prepare Python environment
+      - name: Prepare Python environment
+        run: |
+          python -m pip install --upgrade pip
+          touch requirements.txt
+          echo "pandas" >> requirements.txt
+          echo "scikit-learn" >> requirements.txt
+          echo "joblib" >> requirements.txt
+          echo "numpy" >> requirements.txt
+          echo "azure-ml-sdk" >> requirements.txt
+
+      # Install dependencies
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # Azure login
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      # Stage 6: Prepare Deployment Assets
+      - name: Prepare Deployment Files
+        run: |
+          mkdir -p deploy
+          cp PRO/model.py deploy/score.py
+          echo "Creating environment configuration"
+          cat > deploy/environment.yml << EOL
+          name: activity-classification
+          channels:
+            - defaults
+            - conda-forge
+          dependencies:
+            - python=3.9
+            - pandas
+            - scikit-learn
+            - numpy
+            - joblib
+          EOL
+
+      # Stage 7: Deploy Model to Azure ML
       - name: Deploy Model to Azure ML
         run: |
           az ml online-endpoint create \
             --name activity-classifier-endpoint \
-            --resource-group Miniproject \
-            --workspace-name myminiproject
-          
+            --workspace-name myminiproject \
+            --resource-group Miniproject
+
           az ml online-deployment create \
             --name activity-classifier-deployment \
             --endpoint activity-classifier-endpoint \
             --model activity-classifier \
-            --instance-type Standard_DS2_v2 \
-            --resource-group Miniproject \
-            --workspace-name myminiproject
+            --code-path deploy \
+            --environment-name activity-classification \
+            --workspace-name myminiproject \
+            --resource-group Miniproject
