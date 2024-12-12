@@ -1,55 +1,106 @@
-name: Data Preprocessing Workflow
-run-name: ${{ github.actor }} workflow with shared Azure login
-on: [push]
+name: ML CI/CD Pipeline
+run-name: ${{ github.actor }} ML Workflow with Azure
+
+on:
+  push:
+    branches: 
+      - main
+      - develop
+  pull_request:
+    branches: 
+      - main
 
 jobs:
-  DataPreprocessingJob:
+  azure-ml-setup:
     runs-on: ubuntu-latest
     steps:
-      # Checkout the repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      # Azure login (common step)
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Prepare Environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install azure-cli
+
+      - name: Install Azure ML Extension
+        run: |
+          az extension remove -n ml || true
+          az extension add -n ml -y
+          az extension update -n ml
+
       - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Set up Azure ML CLI extension (common for Azure ML tasks)
-      - name: Install Azure ML extension
-        run: |
-          az extension add -n ml -y
-          az extension update -n ml
+  model-registration:
+    needs: azure-ml-setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
 
-      # Install Python dependencies
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      # Stage 1: Pre-preprocessing: Upload Dataset
-      - name: Upload dataset to Azure ML
+      - name: Register Model in Azure ML
         run: |
-          az ml data create --name raw_data \
-            --path PRO/mydata.csv \
-            --type uri_file \
+          az ml model create \
+            --name activity-classifier \
+            --type custom_model \
             --workspace-name myminiproject \
-            --resource-group Miniproject \
-            --description "Uploading raw dataset for pre-preprocessing"
+            --resource-group Miniproject
 
-      # Stage 2: Preprocessing: Execute Python Script for Data Cleaning
-      - name: Run data cleaning script
-        run: |
-          python Out/data_cleaning.py --trainingdata "PRO/mydata.csv" \
-                                     --outputmodel "Out/cleaned_data.csv"
+  model-deployment:
+    needs: model-registration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
 
-      # Stage 3: Save Cleaned Dataset
-      - name: Save cleaned dataset
+      - name: Prepare Deployment Files
         run: |
-          az ml data create --name cleaned_data \
-            --path Out/cleaned_data.csv \
-            --type uri_file \
+          mkdir -p deploy
+          cp PRO/Model.py deploy/score.py
+          cat > deploy/environment.yml << EOL
+          name: activity-classification
+          channels:
+            - defaults
+            - conda-forge
+          dependencies:
+            - python=3.9
+            - pandas
+            - scikit-learn
+            - numpy
+            - joblib
+          EOL
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      - name: Create Online Endpoint
+        run: |
+          az ml online-endpoint create \
+            --name activity-classifier-endpoint \
             --workspace-name myminiproject \
-            --resource-group Miniproject \
-            --description "Saving cleaned dataset for further processing"
+            --resource-group Miniproject
+
+      - name: Create Online Deployment
+        run: |
+          az ml online-deployment create \
+            --name activity-classifier-deployment \
+            --endpoint activity-classifier-endpoint \
+            --model activity-classifier \
+            --code-path deploy \
+            --environment-name activity-classification \
+            --workspace-name myminiproject \
+            --resource-group Miniproject
