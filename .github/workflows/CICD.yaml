@@ -1,19 +1,20 @@
-name: Data Preprocessing Workflow
-run-name: ${{ github.actor }} workflow with shared Azure login
+name: ML CI/CD Pipeline
+run-name: ${{ github.actor }} ML Workflow with Azure
 
-on: 
+on:
   push:
-    branches:
+    branches: 
       - main
+      - develop
   pull_request:
-    branches:
+    branches: 
       - main
 
 jobs:
-  DataPreprocessingJob:
+  model-training:
     runs-on: ubuntu-latest
     steps:
-      # Checkout the repository
+      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
@@ -29,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas scikit-learn joblib numpy azure-cli
 
-      # Azure login 
+      # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
@@ -41,48 +42,100 @@ jobs:
           az extension add -n ml -y
           az extension update -n ml
 
-      # Verify repository structure
-      - name: Verify Repository Structure
+      # Stage 1: Model Training
+      - name: Train Machine Learning Model
         run: |
-          pwd
-          ls -R
+          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
+          python PRO/Model.py \
+            --trainingdata "Out/cleaned_data.csv" \
+            --outputmodel "trained_model"
 
-      # Stage 1: Validate input data
-      - name: Validate Input Data
+      # Stage 2: Model Evaluation and Metrics
+      - name: Evaluate Model Performance
         run: |
-          test -f PRO/mydata.csv || (echo "Input data file missing" && exit 1)
+          echo "Model training completed. Performance metrics will be logged here."
+          # You can add specific metric logging or validation steps here
 
-      # Stage 2: Upload Dataset to Azure ML
-      - name: Upload dataset to Azure ML
+  model-registration:
+    needs: model-training
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # Azure login
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      # Stage 3: Register Model in Azure ML
+      - name: Register Model in Azure ML
         run: |
-          az ml data create \
-            --name raw_data \
-            --path PRO/mydata.csv \
-            --type uri_file \
+          az ml model create \
+            --name activity-classifier \
+            --path "trained_model/model.pkl" \
+            --type custom_model \
             --workspace-name myminiproject \
-            --resource-group Miniproject \
-            --description "Uploading raw dataset for pre-preprocessing"
+            --resource-group Miniproject
 
-      # Stage 3: Run Data Cleaning Script
-      - name: Run data cleaning script
-        run: |
-          python Out/data_cleaning.py \
-            --trainingdata "PRO/mydata.csv" \
-            --outputmodel "Out/cleaned_data.csv"
+  model-deployment:
+    needs: model-registration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
 
-      # Stage 4: Verify Cleaned Data
-      - name: Verify Cleaned Data
-        run: |
-          test -f Out/cleaned_data.csv || (echo "Data cleaning failed" && exit 1)
-          head -n 5 Out/cleaned_data.csv
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-      # Stage 5: Upload Cleaned Dataset to Azure ML
-      - name: Save cleaned dataset
+      # Prepare deployment environment
+      - name: Prepare Deployment Files
         run: |
-          az ml data create \
-            --name cleaned_data \
-            --path Out/cleaned_data.csv \
-            --type uri_file \
+          mkdir -p deploy
+          cp PRO/Model.py deploy/score.py
+          cat > deploy/environment.yml << EOL
+          name: activity-classification
+          channels:
+            - defaults
+            - conda-forge
+          dependencies:
+            - python=3.9
+            - pandas
+            - scikit-learn
+            - numpy
+            - joblib
+          EOL
+
+      # Azure login
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+      # Stage 4: Deploy Model to Azure ML
+      - name: Create Online Endpoint
+        run: |
+          az ml online-endpoint create \
+            --name activity-classifier-endpoint \
             --workspace-name myminiproject \
-            --resource-group Miniproject \
-            --description "Saving cleaned dataset for further processing"
+            --resource-group Miniproject
+
+      # Stage 5: Create Online Deployment
+      - name: Create Online Deployment
+        run: |
+          az ml online-deployment create \
+            --name activity-classifier-deployment \
+            --endpoint activity-classifier-endpoint \
+            --model activity-classifier \
+            --code-path deploy \
+            --environment-name activity-classification \
+            --workspace-name myminiproject \
+            --resource-group Miniproject
