@@ -17,22 +17,17 @@ jobs:
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Prepare Environment
+      # Install Azure CLI and ML extension
+      - name: Install Azure CLI and ML Extension
         run: |
-          python -m pip install --upgrade pip
-          pip install azure-cli
-
-      - name: Install Azure ML Extension
-        run: |
+          # Remove existing ML extension if present
           az extension remove -n ml || true
+          
+          # Reinstall Azure ML extension
           az extension add -n ml -y
           az extension update -n ml
 
+      # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
@@ -45,15 +40,26 @@ jobs:
       - name: Clone repository code
         uses: actions/checkout@v4
 
+      # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
-      - name: Register Model in Azure ML
+      # Stage: Register Dummy Model in Azure ML
+      - name: Register Dummy Model in Azure ML
         run: |
+          # Ensure the model name is unique and follows naming conventions
+          MODEL_NAME="activity-classifier-$(date +%Y%m%d%H%M%S)"
+          
+          # Create a simple dummy model file
+          mkdir -p dummy_model
+          echo "Dummy model for CI/CD pipeline" > dummy_model/model.txt
+
+          # Register the dummy model
           az ml model create \
-            --name activity-classifier \
+            --name "$MODEL_NAME" \
+            --path "dummy_model" \
             --type custom_model \
             --workspace-name myminiproject \
             --resource-group Miniproject
@@ -65,41 +71,52 @@ jobs:
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      - name: Prepare Deployment Files
-        run: |
-          mkdir -p deploy
-          cp PRO/Model.py deploy/score.py
-          cat > deploy/environment.yml << EOL
-          name: activity-classification
-          channels:
-            - defaults
-            - conda-forge
-          dependencies:
-            - python=3.9
-            - pandas
-            - scikit-learn
-            - numpy
-            - joblib
-          EOL
-
+      # Azure login
       - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: '${{ secrets.AZURE_CREDENTIALS }}'
 
+      # Stage 1: Create Online Endpoint
       - name: Create Online Endpoint
         run: |
+          # Generate unique endpoint name
+          ENDPOINT_NAME="activity-classifier-endpoint-$(date +%Y%m%d%H%M%S)"
+          
           az ml online-endpoint create \
-            --name activity-classifier-endpoint \
+            --name "$ENDPOINT_NAME" \
             --workspace-name myminiproject \
             --resource-group Miniproject
 
+      # Stage 2: Create Online Deployment
       - name: Create Online Deployment
         run: |
+          # Generate unique deployment name
+          DEPLOYMENT_NAME="activity-classifier-deployment-$(date +%Y%m%d%H%M%S)"
+          
+          # Prepare deployment files
+          mkdir -p deploy
+          cat > deploy/score.py << EOL
+          def init():
+              print("Initializing model deployment")
+          
+          def run(data):
+              return {"message": "Dummy deployment for CI/CD pipeline"}
+          EOL
+
+          # Create deployment configuration
+          cat > deploy/deployment.yml << EOL
+          name: "$DEPLOYMENT_NAME"
+          endpoint_name: "$ENDPOINT_NAME"
+          model: 
+            name: "activity-classifier-$(date +%Y%m%d%H%M%S)"
+            version: "1"
+          EOL
+
+          # Create deployment
           az ml online-deployment create \
-            --name activity-classifier-deployment \
-            --endpoint activity-classifier-endpoint \
-            --model activity-classifier \
+            --name "$DEPLOYMENT_NAME" \
+            --endpoint "$ENDPOINT_NAME" \
             --code-path deploy \
             --environment-name activity-classification \
             --workspace-name myminiproject \
