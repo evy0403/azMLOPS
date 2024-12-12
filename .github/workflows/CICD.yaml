@@ -11,7 +11,7 @@ on:
       - main
 
 jobs:
-  data-preprocessing:
+  data-validation:
     runs-on: ubuntu-latest
     steps:
       # Checkout repository
@@ -24,20 +24,37 @@ jobs:
         with:
           python-version: '3.9'
 
-      # Upgrade pip and create requirements file if not exists
+      # Prepare Python environment
       - name: Prepare Python environment
         run: |
           python -m pip install --upgrade pip
-          touch requirements.txt
-          echo "pandas" >> requirements.txt
-          echo "scikit-learn" >> requirements.txt
-          echo "joblib" >> requirements.txt
-          echo "numpy" >> requirements.txt
+          pip install pandas scikit-learn joblib numpy pytest
 
-      # Install dependencies
-      - name: Install Python dependencies
+      # Validate data and directory structure
+      - name: Validate Project Structure
         run: |
-          pip install -r requirements.txt
+          pwd
+          ls -R
+          test -f PRO/mydata.csv || (echo "Data file missing" && exit 1)
+          test -f PRO/model.py || (echo "Model script missing" && exit 1)
+          test -d Out || mkdir Out
+
+  data-preprocessing:
+    needs: data-validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Prepare Python environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas scikit-learn joblib numpy azure-cli
 
       # Azure login 
       - name: Log in to Azure
@@ -65,9 +82,9 @@ jobs:
       # Stage 2: Data Cleaning
       - name: Run data cleaning script
         run: |
-          python Out/data_cleaning.py \
-            --trainingdata "PRO/mydata.csv" \
-            --outputmodel "Out/cleaned_data.csv"
+          python PRO/data_cleaning.py \
+            --input-data PRO/mydata.csv \
+            --output-data Out/cleaned_data.csv
 
       # Stage 3: Upload Cleaned Dataset to Azure ML
       - name: Upload cleaned dataset to Azure ML
@@ -84,30 +101,18 @@ jobs:
     needs: data-preprocessing
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # Prepare Python environment
       - name: Prepare Python environment
         run: |
           python -m pip install --upgrade pip
-          touch requirements.txt
-          echo "pandas" >> requirements.txt
-          echo "scikit-learn" >> requirements.txt
-          echo "joblib" >> requirements.txt
-          echo "numpy" >> requirements.txt
-
-      # Install dependencies
-      - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+          pip install pandas scikit-learn joblib numpy mlflow
 
       # Azure login
       - name: Log in to Azure
@@ -118,49 +123,59 @@ jobs:
       # Stage 4: Model Training
       - name: Train Machine Learning Model
         run: |
+          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
           python PRO/model.py \
-            --trainingdata "Out/cleaned_data.csv" \
-            --outputmodel "trained_model"
+            --input-data Out/cleaned_data.csv \
+            --output-model Out/trained_model.joblib
 
       # Stage 5: Register Model in Azure ML
       - name: Register Model in Azure ML
         run: |
           az ml model create \
             --name activity-classifier \
-            --path "trained_model" \
+            --path Out/trained_model.joblib \
             --type custom_model \
             --workspace-name myminiproject \
             --resource-group Miniproject
 
-  model-deployment:
+  model-testing:
     needs: model-training
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
       - name: Clone repository code
         uses: actions/checkout@v4
 
-      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # Prepare Python environment
       - name: Prepare Python environment
         run: |
           python -m pip install --upgrade pip
-          touch requirements.txt
-          echo "pandas" >> requirements.txt
-          echo "scikit-learn" >> requirements.txt
-          echo "joblib" >> requirements.txt
-          echo "numpy" >> requirements.txt
-          echo "azure-ml-sdk" >> requirements.txt
+          pip install pandas scikit-learn joblib numpy pytest
 
-      # Install dependencies
-      - name: Install Python dependencies
+      - name: Run Model Tests
         run: |
-          pip install -r requirements.txt
+          export PYTHONPATH=$PYTHONPATH:${{ github.workspace }}
+          pytest tests/test_model.py
+
+  model-deployment:
+    needs: model-testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Prepare Python environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas scikit-learn joblib numpy azure-ml-sdk
 
       # Azure login
       - name: Log in to Azure
@@ -173,7 +188,6 @@ jobs:
         run: |
           mkdir -p deploy
           cp PRO/model.py deploy/score.py
-          echo "Creating environment configuration"
           cat > deploy/environment.yml << EOL
           name: activity-classification
           channels:
