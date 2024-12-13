@@ -11,7 +11,7 @@ parser.add_argument("--outputfolder", type=str, default="Out",
                     help="Folder to save the preprocessed data")
 args = parser.parse_args()
 
-# Extracting arguments
+
 input_file = args.trainingdata
 output_folder = args.outputfolder
 
