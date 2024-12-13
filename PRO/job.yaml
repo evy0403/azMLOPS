@@ -1,11 +1,17 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 code: .
-command: python Model.py  --trainingdata ${{ inputs.training_data }}
+command: >
+  python scripts/evaluate_model.py
+  --testdata ${{inputs.test_data}}
+  --model ${{inputs.trained_model}}
 inputs:
-  training_data:
+  test_data:
     type: uri_file
-    path: azureml:mydataset:1 
+    path: azureml:cleaned_data:1
+  trained_model:
+    type: uri_file
+    path: azureml:azureml_lime_jelly_v7d4mr4cm5_output_data_trained_model:1
 environment: azureml://registries/azureml/environments/sklearn-1.1/versions/14
 compute: MLOPS
-experiment_name: job
-description: Building Job
+experiment_name: evaluation_job
+description: Evaluate the trained model with test data.
