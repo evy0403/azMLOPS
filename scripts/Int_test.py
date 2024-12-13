@@ -58,5 +58,5 @@ class TestModelIntegration(unittest.TestCase):
         self.assertGreater(accuracy, 0.8, "Accuracy should be greater than 80%")
         self.assertGreater(f1, 0.8, "F1 score should be greater than 80%")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     unittest.main(argv=["first-arg-is-ignored"])
