@@ -1,112 +1,38 @@
-name: ML CI/CD Pipeline
-run-name: ${{ github.actor }} ML Workflow with Azure
+name: Register Model in Azure
 
 on:
   push:
-    branches: 
+    branches:
       - main
-      - develop
-  pull_request:
-    branches: 
-      - main
+  workflow_dispatch:
 
 jobs:
-  azure-ml-setup:
+  register_model:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone repository code
+      # Checkout the repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: "3.9"
 
-      # Prepare Azure CLI and ML extension
-      - name: Prepare Azure ML Environment
-        run: |
-          # Remove existing ML extension if present
-          az extension remove -n ml || true
-          
-          # Clean up and reinstall Azure ML extension
-          pip install --upgrade pip
-          pip install azure-cli
-          pip install azure-ml
-          
-          # Add ML extension
-          az extension add -n ml -y
-          az extension update -n ml
-
-      # Azure login
-      - name: Log in to Azure
+      # Log in to Azure
+      - name: Azure Login
         uses: azure/login@v1
         with:
-          creds: '${{ secrets.AZURE_CREDENTIALS }}'
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-  model-registration:
-    needs: azure-ml-setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repository code
-        uses: actions/checkout@v4
-
-      # Azure login
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          creds: '${{ secrets.AZURE_CREDENTIALS }}'
-
-      # Stage: Register Model in Azure ML
-      - name: Register Model in Azure ML
+      # Register the model in Azure ML
+      - name: Register Model
         run: |
-          # Generate a unique model name with timestamp
-          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-          MODEL_NAME="activity-classifier-${TIMESTAMP}"
-
-          # Attempt to create the model
-          az ml model create \
-            --name "$MODEL_NAME" \
-            --path "PRO/mydata.csv" \
-            --type uri_file \
-            --workspace-name myminiproject \
-            --resource-group Miniproject
-
-  model-deployment:
-    needs: model-registration
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repository code
-        uses: actions/checkout@v4
-
-      # Azure login
-      - name: Log in to Azure
-        uses: azure/login@v1
-        with:
-          creds: '${{ secrets.AZURE_CREDENTIALS }}'
-
-      # Unique endpoint name
-      - name: Generate Unique Endpoint Name
-        run: |
-          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-          ENDPOINT_NAME="activity-classifier-endpoint-${TIMESTAMP}"
-          
-          # Create Online Endpoint
-          az ml online-endpoint create \
-            --name "$ENDPOINT_NAME" \
-            --workspace-name myminiproject \
-            --resource-group Miniproject
-
-      # Create Online Deployment
-      - name: Create Online Deployment
-        run: |
-          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-          DEPLOYMENT_NAME="activity-classifier-deployment-${TIMESTAMP}"
-          
-          az ml online-deployment create \
-            --name "$DEPLOYMENT_NAME" \
-            --endpoint "$ENDPOINT_NAME" \
-            --model "$MODEL_NAME" \
-            --code-path PRO \
-            --environment-name activity-classification \
-            --workspace-name myminiproject \
-            --resource-group Miniproject
+          az ml model create --name trained-model \
+            --path Out/trained_model.pkl \
+            --description "Trained model for MLOPS project" \
+            --tags "stage=production" \
+            --workspace-name ${{ secrets.AZURE_WORKSPACE_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --subscription-id ${{ secrets.AZURE_SUBSCRIPTION_ID }}
